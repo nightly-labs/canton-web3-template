@@ -1,15 +1,15 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import nacl from "tweetnacl";
 import adapter, {
   type CantonWallet,
   SignRequestResponseType,
   type SignRequestResponse,
+  Instrument,
 } from "../misc/adapter";
 import ActionStarryButton from "./ActionStarryButton";
 import StarryButton from "./StarryButton";
-import bs58 from "bs58";
 
 // Helper functions for base64 encoding/decoding
 const fromBase64 = (b64: string): Uint8Array => {
@@ -37,11 +37,45 @@ const verifySignature = (
   }
 };
 
+// Default instrument for Canton
+const DEFAULT_INSTRUMENT = {
+  id: "Amulet",
+  admin:
+    "DSO::1220b1431ef217342db44d516bb9befde802be7d8899637d290895fa58880f19accc",
+};
+
 const StickyHeader: React.FC = () => {
   const [wallet, setWallet] = React.useState<CantonWallet | null>(null);
   const [walletAddress, setWalletAddress] = React.useState<
     string | undefined
   >();
+  const [pendingTransactions, setPendingTransactions] = React.useState<
+    Array<{
+      contractId: string;
+      instrumentId: Instrument;
+      type: "sender" | "receiver";
+    }>
+  >([]);
+  const [transferAmount, setTransferAmount] = React.useState<string>("");
+  const [transferAddress, setTransferAddress] = React.useState<string>(
+    "nightly::12201bfaf9c92404ae0832a5f47f2d8bfae0b1da65184953b1633394a65cff48b5cd"
+  );
+
+  const fetchPendingTransactions = async () => {
+    try {
+      const result = await adapter.getPendingTransactions();
+      console.log(result);
+      if (result) {
+        setPendingTransactions(result);
+      }
+    } catch (error) {
+      console.error("Failed to fetch pending transactions:", error);
+    }
+  };
+
+  const filteredPendingTransactions = useMemo(() => {
+    return pendingTransactions.filter((tx) => tx.type === "receiver");
+  }, [pendingTransactions]);
 
   useEffect(() => {
     // Initialize the adapter
@@ -51,7 +85,6 @@ const StickyHeader: React.FC = () => {
       network: "mainnet",
       onAccept: (connectedWallet) => {
         setWallet(connectedWallet);
-        // Get the party ID or public key as address
         const address =
           connectedWallet.partyId || connectedWallet.publicKey || "Connected";
         setWalletAddress(address);
@@ -63,10 +96,10 @@ const StickyHeader: React.FC = () => {
       onDisconnect: () => {
         setWallet(null);
         setWalletAddress(undefined);
+        setPendingTransactions([]);
       },
     });
 
-    // Try eager connect for session restoration
     const init = async () => {
       if (adapter.canEagerConnect()) {
         try {
@@ -79,6 +112,109 @@ const StickyHeader: React.FC = () => {
     };
     init();
   }, []);
+
+  // Fetch pending transactions when wallet connects
+  useEffect(() => {
+    if (wallet) {
+      fetchPendingTransactions();
+    }
+  }, [wallet]);
+
+  const handleTransactionChoice = async (
+    contractId: string,
+    choice: "Accept" | "Reject",
+    instrumentId: Instrument = DEFAULT_INSTRUMENT
+  ) => {
+    try {
+      const choiceCommand = await adapter.createTransactionChoiceCommand({
+        transferContractId: contractId,
+        choice,
+        instrument: instrumentId,
+      });
+
+      if (!choiceCommand) {
+        throw new Error("Failed to create choice command");
+      }
+
+      return new Promise<void>((resolve, reject) => {
+        adapter.submitTransactionCommand(
+          choiceCommand,
+          (response: SignRequestResponse) => {
+            if (
+              response.type === SignRequestResponseType.SIGN_REQUEST_APPROVED
+            ) {
+              const data = response.data as { updateId?: string };
+              toast.success(`Transaction ${choice.toLowerCase()}ed!`, {
+                description: `Update ID: ${data.updateId}`,
+              });
+              fetchPendingTransactions();
+              resolve();
+            } else if (
+              response.type === SignRequestResponseType.SIGN_REQUEST_REJECTED
+            ) {
+              const data = response.data as { reason: string };
+              reject(new Error(data.reason));
+            } else {
+              const data = response.data as { error: string };
+              reject(new Error(data.error));
+            }
+          }
+        );
+      });
+    } catch (error) {
+      console.error(`Failed to ${choice.toLowerCase()} transaction:`, error);
+      toast.error(`Failed to ${choice.toLowerCase()} transaction`);
+    }
+  };
+
+  const handleSendTransfer = async () => {
+    if (!transferAmount || !transferAddress) {
+      toast.error("Please enter amount and address");
+      return;
+    }
+
+    try {
+      const transferCommand = await adapter.createTransferCommand({
+        receiverPartyId: transferAddress,
+        amount: transferAmount,
+        instrument: DEFAULT_INSTRUMENT,
+        memo: "Transfer from Canton Template",
+      });
+      console.log(transferCommand);
+      if (!transferCommand) {
+        throw new Error("Failed to create transfer command");
+      }
+
+      return new Promise<void>((resolve, reject) => {
+        adapter.submitTransactionCommand(
+          transferCommand,
+          (response: SignRequestResponse) => {
+            if (
+              response.type === SignRequestResponseType.SIGN_REQUEST_APPROVED
+            ) {
+              const data = response.data as { updateId?: string };
+              toast.success("Transfer sent!", {
+                description: `Update ID: ${data.updateId}`,
+              });
+              setTransferAmount("");
+              resolve();
+            } else if (
+              response.type === SignRequestResponseType.SIGN_REQUEST_REJECTED
+            ) {
+              const data = response.data as { reason: string };
+              reject(new Error(data.reason));
+            } else {
+              const data = response.data as { error: string };
+              reject(new Error(data.error));
+            }
+          }
+        );
+      });
+    } catch (error) {
+      console.error("Failed to send transfer:", error);
+      toast.error("Failed to send transfer");
+    }
+  };
 
   return (
     <header className="fixed top-0 left-0 w-full bg-opacity-50 p-6 z-50">
@@ -122,7 +258,6 @@ const StickyHeader: React.FC = () => {
                             };
                             console.log("Signature:", data.signature);
 
-                            // Verify signature using nacl.sign.detached.verify
                             const message = "I love Nightly";
                             const publicKey = wallet?.publicKey;
 
@@ -188,92 +323,115 @@ const StickyHeader: React.FC = () => {
                 }}
                 name="Sign Message"
               />
-              <ActionStarryButton
-                onClick={async () => {
-                  const sendTransfer = async () => {
-                    // Create a transfer command
-                    const transferCommand = await adapter.createTransferCommand(
-                      {
-                        receiverPartyId: "example-receiver-party-id",
-                        amount: "10",
-                        instrument: {
-                          id: "Amulet",
-                          admin:
-                            "DSO::1220b1431ef217342db44d516bb9befde802be7d8899637d290895fa58880f19accc",
-                        },
-                        memo: "Test transfer from Canton Template",
-                      }
-                    );
 
-                    if (!transferCommand) {
-                      throw new Error("Failed to create transfer command");
-                    }
-
-                    return new Promise<void>((resolve, reject) => {
-                      adapter.submitTransactionCommand(
-                        transferCommand,
-                        (response: SignRequestResponse) => {
-                          if (
-                            response.type ===
-                            SignRequestResponseType.SIGN_REQUEST_APPROVED
-                          ) {
-                            const data = response.data as { updateId?: string };
-                            console.log(
-                              "Transaction submitted:",
-                              data.updateId
-                            );
-                            toast.success("Transaction submitted!", {
-                              description: `Update ID: ${data.updateId}`,
-                            });
-                            resolve();
-                          } else if (
-                            response.type ===
-                            SignRequestResponseType.SIGN_REQUEST_REJECTED
-                          ) {
-                            const data = response.data as { reason: string };
-                            console.log("Rejected:", data.reason);
-                            reject(new Error(data.reason));
-                          } else {
-                            const data = response.data as { error: string };
-                            console.log("Error:", data.error);
-                            reject(new Error(data.error));
-                          }
-                        }
-                      );
-                    });
-                  };
-                  toast.promise(sendTransfer, {
-                    loading: "Sending transfer...",
-                    success: (_) => {
-                      return `Transfer sent!`;
-                    },
-                    error: "Operation has been rejected!",
-                  });
-                }}
-                name="Send Transfer"
-              />
               <ActionStarryButton
-                onClick={async () => {
-                  const getTransactions = async () => {
-                    const result = await adapter.getHoldingTransactions();
-                    if (result) {
-                      console.log("Transactions:", result.transactions);
-                      console.log("Next offset:", result.nextOffset);
-                      toast.success(
-                        `Found ${result.transactions.length} transactions`
-                      );
-                    }
-                  };
-                  toast.promise(getTransactions, {
-                    loading: "Fetching transactions...",
-                    success: (_) => {
-                      return `Transactions fetched!`;
-                    },
-                    error: "Failed to fetch transactions",
-                  });
-                }}
-                name="Get Transactions"
+                onClick={fetchPendingTransactions}
+                name="Refresh Pending"
               />
+
+              {/* Pending Transactions List */}
+              {filteredPendingTransactions.length > 0 && (
+                <div className="bg-black bg-opacity-80 rounded-lg p-3 max-w-[320px]">
+                  <div className="text-white text-sm font-semibold mb-2">
+                    Pending Transactions ({filteredPendingTransactions.length})
+                  </div>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {filteredPendingTransactions.map((contractId, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-gray-800 rounded p-2"
+                      >
+                        <span
+                          className="text-white text-xs truncate max-w-[120px]"
+                          title={contractId.contractId}
+                        >
+                          {contractId.contractId?.substring(0, 8)}...
+                          {contractId.contractId?.substring(
+                            contractId.contractId?.length - 6
+                          )}
+                        </span>
+                        <div className="flex space-x-1">
+                          <button
+                            onClick={() =>
+                              toast.promise(
+                                handleTransactionChoice(
+                                  contractId.contractId,
+                                  "Accept",
+                                  contractId.instrumentId
+                                ),
+                                {
+                                  loading: "Accepting...",
+                                  success: "Accepted!",
+                                  error: "Failed to accept",
+                                }
+                              )
+                            }
+                            className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 rounded transition-colors"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() =>
+                              toast.promise(
+                                handleTransactionChoice(
+                                  contractId.contractId,
+                                  "Reject",
+                                  contractId.instrumentId
+                                ),
+                                {
+                                  loading: "Rejecting...",
+                                  success: "Rejected!",
+                                  error: "Failed to reject",
+                                }
+                              )
+                            }
+                            className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded transition-colors"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Transfer Form */}
+              <div className="bg-black bg-opacity-80 rounded-lg p-3 max-w-[320px]">
+                <div className="text-white text-sm font-semibold mb-2">
+                  Send CC
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="number"
+                    placeholder="Amount"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="0.01"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Receiver Party ID"
+                    value={transferAddress}
+                    onChange={(e) => setTransferAddress(e.target.value)}
+                    className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={() =>
+                      toast.promise(handleSendTransfer, {
+                        loading: "Sending transfer...",
+                        success: "Transfer sent!",
+                        error: "Failed to send transfer",
+                      })
+                    }
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded transition-colors"
+                  >
+                    Send CC
+                  </button>
+                </div>
+              </div>
             </>
           )}
         </div>

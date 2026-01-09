@@ -65,7 +65,13 @@ export interface CantonWallet {
     transactions: any[];
     nextOffset: string | null;
   }>;
-  getPendingTransactions: () => Promise<any[]>;
+  getPendingTransactions: () => Promise<
+    Array<{
+      contractId: string;
+      instrumentId: Instrument;
+      type: "sender" | "receiver";
+    }>
+  >;
   getHoldingUtxos: () => Promise<any[]>;
   getActiveContractsByInterfaceId: (interfaceId: string) => Promise<any[]>;
   getActiveContractsByTemplateId: (templateId: string) => Promise<any[]>;
