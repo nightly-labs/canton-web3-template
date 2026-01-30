@@ -37,6 +37,7 @@ export interface TransactionCommand {
 }
 
 export interface SignRequestApprovedResponse {
+  /** Base64-encoded signature */
   signature?: string;
   updateId?: string;
 }
@@ -59,8 +60,8 @@ export interface SignRequestResponse {
 
 export interface CantonWallet {
   partyId: string;
+  /** Base64-encoded public key */
   publicKey: string;
-  authToken: string;
   getHoldingTransactions: () => Promise<{
     transactions: any[];
     nextOffset: string | null;
@@ -77,17 +78,17 @@ export interface CantonWallet {
   getActiveContractsByTemplateId: (templateId: string) => Promise<any[]>;
   signMessage: (
     message: string,
-    onResponse: (response: SignRequestResponse) => void
+    onResponse: (response: SignRequestResponse) => void,
   ) => void;
   createTransferCommand: (
-    params: CreateTransferCommandParams
+    params: CreateTransferCommandParams,
   ) => Promise<TransactionCommand>;
   createTransactionChoiceCommand: (
-    params: CreateTransactionChoiceCommandParams
+    params: CreateTransactionChoiceCommandParams,
   ) => Promise<TransactionCommand>;
   submitTransactionCommand: (
     transactionCommand: TransactionCommand,
-    onResponse: (response: SignRequestResponse) => void
+    onResponse: (response: SignRequestResponse) => void,
   ) => void;
 }
 
@@ -95,8 +96,8 @@ export interface CantonWallet {
 interface NightlyCantonProvider extends CantonWallet {
   connect: () => Promise<{
     partyId: string;
+    /** Base64-encoded public key */
     publicKey: string;
-    authToken: string;
   }>;
   disconnect: () => Promise<void>;
   isConnected: () => boolean;
@@ -146,7 +147,7 @@ export const init = (options: {
 export const connect = async (): Promise<CantonWallet | null> => {
   if (!isNightlyAvailable()) {
     console.error(
-      "Nightly Canton wallet is not available. Please install Nightly wallet extension."
+      "Nightly Canton wallet is not available. Please install Nightly wallet extension.",
     );
     if (_onRejectCallback) {
       _onRejectCallback();
@@ -232,7 +233,7 @@ export const eagerConnect = async (): Promise<CantonWallet | null> => {
  */
 export const signMessage = (
   message: string,
-  onResponse: (response: SignRequestResponse) => void
+  onResponse: (response: SignRequestResponse) => void,
 ): void => {
   if (!_wallet) {
     onResponse({
@@ -249,7 +250,7 @@ export const signMessage = (
  * Create a transfer command
  */
 export const createTransferCommand = async (
-  params: CreateTransferCommandParams
+  params: CreateTransferCommandParams,
 ): Promise<TransactionCommand | null> => {
   if (!_wallet) {
     throw new Error("No wallet connected");
@@ -262,7 +263,7 @@ export const createTransferCommand = async (
  * Create a transaction choice command
  */
 export const createTransactionChoiceCommand = async (
-  params: CreateTransactionChoiceCommandParams
+  params: CreateTransactionChoiceCommandParams,
 ): Promise<TransactionCommand | null> => {
   if (!_wallet) {
     throw new Error("No wallet connected");
@@ -276,7 +277,7 @@ export const createTransactionChoiceCommand = async (
  */
 export const submitTransactionCommand = (
   transactionCommand: TransactionCommand,
-  onResponse: (response: SignRequestResponse) => void
+  onResponse: (response: SignRequestResponse) => void,
 ): void => {
   if (!_wallet) {
     onResponse({
@@ -329,7 +330,7 @@ export const getHoldingUtxos = async (): Promise<any[] | null> => {
  * Get active contracts by interface ID
  */
 export const getActiveContractsByInterfaceId = async (
-  interfaceId: string
+  interfaceId: string,
 ): Promise<any[] | null> => {
   if (!_wallet) {
     throw new Error("No wallet connected");
@@ -342,7 +343,7 @@ export const getActiveContractsByInterfaceId = async (
  * Get active contracts by template ID
  */
 export const getActiveContractsByTemplateId = async (
-  templateId: string
+  templateId: string,
 ): Promise<any[] | null> => {
   if (!_wallet) {
     throw new Error("No wallet connected");
