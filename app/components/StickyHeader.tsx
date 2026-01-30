@@ -11,6 +11,10 @@ import adapter, {
 import ActionStarryButton from "./ActionStarryButton";
 import StarryButton from "./StarryButton";
 
+const MESSAGE_TO_SIGN = Buffer.from("I love Nightly", "utf-8").toString(
+  "base64",
+);
+
 // Helper functions for base64 encoding/decoding
 const fromBase64 = (b64: string): Uint8Array => {
   return Uint8Array.from(Buffer.from(b64, "base64"));
@@ -19,17 +23,17 @@ const fromBase64 = (b64: string): Uint8Array => {
 const verifySignature = (
   message: string,
   signatureBase64: string,
-  publicKeyBase64: string
+  publicKeyBase64: string,
 ): boolean => {
   try {
-    const messageBytes = new TextEncoder().encode(message);
+    const messageBytes = Uint8Array.from(Buffer.from(message, "base64"));
     const signatureBytes = fromBase64(signatureBase64);
     const publicKeyBytes = fromBase64(publicKeyBase64);
 
     return nacl.sign.detached.verify(
       messageBytes,
       signatureBytes,
-      publicKeyBytes
+      publicKeyBytes,
     );
   } catch (error) {
     console.error("Signature verification error:", error);
@@ -58,7 +62,7 @@ const StickyHeader: React.FC = () => {
   >([]);
   const [transferAmount, setTransferAmount] = React.useState<string>("");
   const [transferAddress, setTransferAddress] = React.useState<string>(
-    "nightly::12201bfaf9c92404ae0832a5f47f2d8bfae0b1da65184953b1633394a65cff48b5cd"
+    "nightly::12201bfaf9c92404ae0832a5f47f2d8bfae0b1da65184953b1633394a65cff48b5cd",
   );
 
   const fetchPendingTransactions = async () => {
@@ -123,7 +127,7 @@ const StickyHeader: React.FC = () => {
   const handleTransactionChoice = async (
     contractId: string,
     choice: "Accept" | "Reject",
-    instrumentId: Instrument = DEFAULT_INSTRUMENT
+    instrumentId: Instrument = DEFAULT_INSTRUMENT,
   ) => {
     try {
       const choiceCommand = await adapter.createTransactionChoiceCommand({
@@ -158,7 +162,7 @@ const StickyHeader: React.FC = () => {
               const data = response.data as { error: string };
               reject(new Error(data.error));
             }
-          }
+          },
         );
       });
     } catch (error) {
@@ -207,7 +211,7 @@ const StickyHeader: React.FC = () => {
               const data = response.data as { error: string };
               reject(new Error(data.error));
             }
-          }
+          },
         );
       });
     } catch (error) {
@@ -247,7 +251,7 @@ const StickyHeader: React.FC = () => {
                   const signMessage = () => {
                     return new Promise<void>((resolve, reject) => {
                       adapter.signMessage(
-                        "I love Nightly",
+                        MESSAGE_TO_SIGN,
                         (response: SignRequestResponse) => {
                           if (
                             response.type ===
@@ -258,14 +262,13 @@ const StickyHeader: React.FC = () => {
                             };
                             console.log("Signature:", data.signature);
 
-                            const message = "I love Nightly";
                             const publicKey = wallet?.publicKey;
 
                             if (data.signature && publicKey) {
                               const isValid = verifySignature(
-                                message,
+                                MESSAGE_TO_SIGN,
                                 data.signature,
-                                publicKey
+                                publicKey,
                               );
 
                               console.log("Signature valid:", isValid);
@@ -274,7 +277,7 @@ const StickyHeader: React.FC = () => {
                                 toast.success("Message signed & verified!", {
                                   description: `Signature: ${data.signature.substring(
                                     0,
-                                    20
+                                    20,
                                   )}...`,
                                 });
                               } else {
@@ -283,16 +286,16 @@ const StickyHeader: React.FC = () => {
                                   {
                                     description: `Signature: ${data.signature.substring(
                                       0,
-                                      20
+                                      20,
                                     )}...`,
-                                  }
+                                  },
                                 );
                               }
                             } else {
                               toast.success("Message signed!", {
                                 description: `Signature: ${data.signature?.substring(
                                   0,
-                                  20
+                                  20,
                                 )}...`,
                               });
                             }
@@ -309,7 +312,7 @@ const StickyHeader: React.FC = () => {
                             console.log("Error:", data.error);
                             reject(new Error(data.error));
                           }
-                        }
+                        },
                       );
                     });
                   };
@@ -347,7 +350,7 @@ const StickyHeader: React.FC = () => {
                         >
                           {contractId.contractId?.substring(0, 8)}...
                           {contractId.contractId?.substring(
-                            contractId.contractId?.length - 6
+                            contractId.contractId?.length - 6,
                           )}
                         </span>
                         <div className="flex space-x-1">
@@ -357,13 +360,13 @@ const StickyHeader: React.FC = () => {
                                 handleTransactionChoice(
                                   contractId.contractId,
                                   "Accept",
-                                  contractId.instrumentId
+                                  contractId.instrumentId,
                                 ),
                                 {
                                   loading: "Accepting...",
                                   success: "Accepted!",
                                   error: "Failed to accept",
-                                }
+                                },
                               )
                             }
                             className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 rounded transition-colors"
@@ -376,13 +379,13 @@ const StickyHeader: React.FC = () => {
                                 handleTransactionChoice(
                                   contractId.contractId,
                                   "Reject",
-                                  contractId.instrumentId
+                                  contractId.instrumentId,
                                 ),
                                 {
                                   loading: "Rejecting...",
                                   success: "Rejected!",
                                   error: "Failed to reject",
-                                }
+                                },
                               )
                             }
                             className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded transition-colors"
