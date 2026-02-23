@@ -1,375 +1,151 @@
-/**
- * Canton Wallet Adapter
- *
- * This adapter provides integration with Nightly Wallet for Canton network.
- * The wallet is available at window.nightly.canton
- */
+import * as sdk from '@canton-network/dapp-sdk'
+import type * as dappAPI from '@canton-network/core-wallet-dapp-rpc-client'
 
-// Types based on Zoro SDK documentation
-export enum SignRequestResponseType {
-  SIGN_REQUEST_APPROVED = "sign_request_approved",
-  SIGN_REQUEST_REJECTED = "sign_request_rejected",
-  SIGN_REQUEST_ERROR = "sign_request_error",
+export type CantonConnectResult = dappAPI.ConnectResult
+export type CantonStatusEvent = dappAPI.StatusEvent
+export type CantonWalletAccount = dappAPI.Wallet
+export type CantonTxChangedEvent = dappAPI.TxChangedEvent
+export type CantonPrepareExecuteParams = dappAPI.PrepareExecuteParams
+export type CantonPrepareExecuteResult = dappAPI.PrepareExecuteResult
+export type CantonLedgerApiRequest = dappAPI.LedgerApiParams
+export type CantonLedgerApiResult = dappAPI.LedgerApiResult
+
+export interface CantonSignMessageRequest {
+  message: string
 }
 
-export interface Instrument {
-  id: string;
-  admin: string;
+export interface CantonSignMessageResult {
+  signature: string
 }
 
-export interface CreateTransferCommandParams {
-  receiverPartyId: string;
-  amount: string;
-  instrument: Instrument;
-  memo?: string;
-  expiryDate?: string;
+export type CantonProviderEventName = 'statusChanged' | 'accountsChanged' | 'txChanged'
+
+export interface CantonProviderEventMap {
+  statusChanged: dappAPI.StatusEvent
+  accountsChanged: dappAPI.AccountsChangedEvent
+  txChanged: dappAPI.TxChangedEvent
 }
 
-export interface CreateTransactionChoiceCommandParams {
-  transferContractId: string;
-  choice: "Accept" | "Reject" | "Withdraw";
-  instrument: Instrument;
+export type CantonProviderListener<E extends CantonProviderEventName> = (
+  payload: CantonProviderEventMap[E]
+) => void
+
+export interface CantonProviderRequestArgs {
+  method: string
+  params?: unknown
 }
 
-export interface TransactionCommand {
-  command: any;
-  disclosedContracts: any[];
+type CantonProvider = {
+  request: <T = unknown>(args: CantonProviderRequestArgs) => Promise<T>
+  on?: <E extends CantonProviderEventName>(
+    event: E,
+    listener: CantonProviderListener<E>
+  ) => CantonProvider
+  removeListener?: <E extends CantonProviderEventName>(
+    event: E,
+    listener: CantonProviderListener<E>
+  ) => CantonProvider
 }
 
-export interface SignRequestApprovedResponse {
-  /** Base64-encoded signature */
-  signature?: string;
-  updateId?: string;
-}
-
-export interface SignRequestRejectedResponse {
-  reason: string;
-}
-
-export interface SignRequestErrorResponse {
-  error: string;
-}
-
-export interface SignRequestResponse {
-  type: SignRequestResponseType;
-  data:
-    | SignRequestApprovedResponse
-    | SignRequestRejectedResponse
-    | SignRequestErrorResponse;
-}
-
-export interface CantonWallet {
-  partyId: string;
-  /** Base64-encoded public key */
-  publicKey: string;
-  getHoldingTransactions: () => Promise<{
-    transactions: any[];
-    nextOffset: string | null;
-  }>;
-  getPendingTransactions: () => Promise<
-    Array<{
-      contractId: string;
-      instrumentId: Instrument;
-      type: "sender" | "receiver";
-    }>
-  >;
-  getHoldingUtxos: () => Promise<any[]>;
-  getActiveContractsByInterfaceId: (interfaceId: string) => Promise<any[]>;
-  getActiveContractsByTemplateId: (templateId: string) => Promise<any[]>;
-  signMessage: (
-    message: string,
-    onResponse: (response: SignRequestResponse) => void,
-  ) => void;
-  createTransferCommand: (
-    params: CreateTransferCommandParams,
-  ) => Promise<TransactionCommand>;
-  createTransactionChoiceCommand: (
-    params: CreateTransactionChoiceCommandParams,
-  ) => Promise<TransactionCommand>;
-  submitTransactionCommand: (
-    transactionCommand: TransactionCommand,
-    onResponse: (response: SignRequestResponse) => void,
-  ) => void;
-}
-
-// Nightly Canton wallet interface
-interface NightlyCantonProvider extends CantonWallet {
-  connect: () => Promise<{
-    partyId: string;
-    /** Base64-encoded public key */
-    publicKey: string;
-  }>;
-  disconnect: () => Promise<void>;
-  isConnected: () => boolean;
-}
-
-// Declare Nightly wallet on window
-declare global {
-  interface Window {
-    nightly?: {
-      canton?: NightlyCantonProvider;
-    };
-  }
-}
-
-// State
-let _wallet: CantonWallet | null = null;
-let _onAcceptCallback: ((wallet: CantonWallet) => void) | null = null;
-let _onRejectCallback: (() => void) | null = null;
-let _onDisconnectCallback: (() => void) | null = null;
-
-/**
- * Check if Nightly Canton wallet is available
- */
-export const isNightlyAvailable = (): boolean => {
-  return typeof window !== "undefined" && !!window.nightly?.canton;
-};
-
-/**
- * Initialize the Canton adapter
- */
-export const init = (options: {
-  appName: string;
-  iconUrl?: string;
-  network?: "mainnet" | "local";
-  onAccept?: (wallet: CantonWallet) => void;
-  onReject?: () => void;
-  onDisconnect?: () => void;
-}) => {
-  _onAcceptCallback = options.onAccept || null;
-  _onRejectCallback = options.onReject || null;
-  _onDisconnectCallback = options.onDisconnect || null;
-};
-
-/**
- * Connect to Canton wallet via Nightly
- */
-export const connect = async (): Promise<CantonWallet | null> => {
-  if (!isNightlyAvailable()) {
-    console.error(
-      "Nightly Canton wallet is not available. Please install Nightly wallet extension.",
-    );
-    if (_onRejectCallback) {
-      _onRejectCallback();
-    }
-    return null;
+const getProvider = (): CantonProvider => {
+  if (typeof window === 'undefined') {
+    throw new Error('Canton provider is not available in a non-browser environment')
   }
 
-  try {
-    await window.nightly!.canton!.connect();
-    const wallet = await window.nightly!.canton!;
-    _wallet = wallet;
-    if (_onAcceptCallback) {
-      _onAcceptCallback(wallet);
-    }
-    return wallet;
-  } catch (error) {
-    console.error("Failed to connect to Nightly Canton wallet:", error);
-    if (_onRejectCallback) {
-      _onRejectCallback();
-    }
-    return null;
-  }
-};
-
-/**
- * Disconnect from Canton wallet
- */
-export const disconnect = async (): Promise<void> => {
-  if (!isNightlyAvailable()) {
-    _wallet = null;
-    return;
+  const provider = (window as unknown as { canton?: CantonProvider }).canton
+  if (!provider) {
+    throw new Error('Canton provider is not available on window.canton')
   }
 
-  try {
-    await window.nightly!.canton!.disconnect();
-  } catch (error) {
-    console.error("Failed to disconnect from Nightly Canton wallet:", error);
+  return provider
+}
+
+const request = async <T = unknown>(args: CantonProviderRequestArgs): Promise<T> => {
+  const provider = getProvider()
+  return provider.request<T>(args)
+}
+
+export const isProviderAvailable = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false
   }
 
-  _wallet = null;
+  return Boolean((window as unknown as { canton?: CantonProvider }).canton)
+}
 
-  if (_onDisconnectCallback) {
-    _onDisconnectCallback();
-  }
-};
+export const connect = async (): Promise<CantonConnectResult> => {
+  return sdk.connect()
+}
 
-/**
- * Get current connected wallet
- */
-export const getWallet = (): CantonWallet | null => {
-  return _wallet;
-};
+export const disconnect = async (): Promise<null> => {
+  await sdk.disconnect()
+  return null
+}
 
-/**
- * Check if wallet can eager connect (for session restoration)
- */
-export const canEagerConnect = (): boolean => {
-  if (!isNightlyAvailable()) {
-    return false;
-  }
+export const status = async (): Promise<CantonStatusEvent> => {
+  return sdk.status()
+}
 
-  // Check if isConnected method exists
-  if (typeof window.nightly?.canton?.isConnected === "function") {
-    return window.nightly.canton.isConnected();
-  }
+export const requestAccounts = async (): Promise<CantonWalletAccount[]> => {
+  return sdk.requestAccounts()
+}
 
-  return false;
-};
+export const prepareExecute = async (
+  params: CantonPrepareExecuteParams
+): Promise<CantonPrepareExecuteResult> => {
+  return sdk.prepareExecute(params)
+}
 
-/**
- * Try to restore previous session
- */
-export const eagerConnect = async (): Promise<CantonWallet | null> => {
-  if (!canEagerConnect()) {
-    return null;
-  }
+export const ledgerApi = async (params: CantonLedgerApiRequest): Promise<CantonLedgerApiResult> => {
+  return sdk.ledgerApi(params)
+}
 
-  return connect();
-};
+export const open = async (): Promise<void> => {
+  return sdk.open()
+}
 
-/**
- * Sign a message using the connected wallet
- */
-export const signMessage = (
-  message: string,
-  onResponse: (response: SignRequestResponse) => void,
+export const signMessage = async (
+  params: CantonSignMessageRequest
+): Promise<CantonSignMessageResult> => {
+  return request<CantonSignMessageResult>({
+    method: 'signMessage',
+    params,
+  })
+}
+
+export const on = <E extends CantonProviderEventName>(
+  event: E,
+  listener: CantonProviderListener<E>
 ): void => {
-  if (!_wallet) {
-    onResponse({
-      type: SignRequestResponseType.SIGN_REQUEST_ERROR,
-      data: { error: "No wallet connected" },
-    });
-    return;
+  const provider = getProvider()
+
+  if (typeof provider.on !== 'function') {
+    throw new Error('Canton provider does not support event listeners')
   }
 
-  _wallet.signMessage(message, onResponse);
-};
+  provider.on(event, listener)
+}
 
-/**
- * Create a transfer command
- */
-export const createTransferCommand = async (
-  params: CreateTransferCommandParams,
-): Promise<TransactionCommand | null> => {
-  if (!_wallet) {
-    throw new Error("No wallet connected");
-  }
-
-  return _wallet.createTransferCommand(params);
-};
-
-/**
- * Create a transaction choice command
- */
-export const createTransactionChoiceCommand = async (
-  params: CreateTransactionChoiceCommandParams,
-): Promise<TransactionCommand | null> => {
-  if (!_wallet) {
-    throw new Error("No wallet connected");
-  }
-
-  return _wallet.createTransactionChoiceCommand(params);
-};
-
-/**
- * Submit a transaction command
- */
-export const submitTransactionCommand = (
-  transactionCommand: TransactionCommand,
-  onResponse: (response: SignRequestResponse) => void,
+export const removeListener = <E extends CantonProviderEventName>(
+  event: E,
+  listener: CantonProviderListener<E>
 ): void => {
-  if (!_wallet) {
-    onResponse({
-      type: SignRequestResponseType.SIGN_REQUEST_ERROR,
-      data: { error: "No wallet connected" },
-    });
-    return;
-  }
+  const provider = getProvider()
+  provider.removeListener?.(event, listener)
+}
 
-  _wallet.submitTransactionCommand(transactionCommand, onResponse);
-};
-
-/**
- * Get holding transactions
- */
-export const getHoldingTransactions = async (): Promise<{
-  transactions: any[];
-  nextOffset: string | null;
-} | null> => {
-  if (!_wallet) {
-    throw new Error("No wallet connected");
-  }
-
-  return _wallet.getHoldingTransactions();
-};
-
-/**
- * Get pending transactions
- */
-export const getPendingTransactions = async (): Promise<any[] | null> => {
-  if (!_wallet) {
-    throw new Error("No wallet connected");
-  }
-
-  return _wallet.getPendingTransactions();
-};
-
-/**
- * Get holding UTXOs
- */
-export const getHoldingUtxos = async (): Promise<any[] | null> => {
-  if (!_wallet) {
-    throw new Error("No wallet connected");
-  }
-
-  return _wallet.getHoldingUtxos();
-};
-
-/**
- * Get active contracts by interface ID
- */
-export const getActiveContractsByInterfaceId = async (
-  interfaceId: string,
-): Promise<any[] | null> => {
-  if (!_wallet) {
-    throw new Error("No wallet connected");
-  }
-
-  return _wallet.getActiveContractsByInterfaceId(interfaceId);
-};
-
-/**
- * Get active contracts by template ID
- */
-export const getActiveContractsByTemplateId = async (
-  templateId: string,
-): Promise<any[] | null> => {
-  if (!_wallet) {
-    throw new Error("No wallet connected");
-  }
-
-  return _wallet.getActiveContractsByTemplateId(templateId);
-};
-
-// Export default adapter interface
 const adapter = {
-  init,
   connect,
   disconnect,
-  getWallet,
-  canEagerConnect,
-  eagerConnect,
+  status,
+  requestAccounts,
+  prepareExecute,
+  ledgerApi,
+  open,
   signMessage,
-  createTransferCommand,
-  createTransactionChoiceCommand,
-  submitTransactionCommand,
-  getHoldingTransactions,
-  getPendingTransactions,
-  getHoldingUtxos,
-  getActiveContractsByInterfaceId,
-  getActiveContractsByTemplateId,
-  isNightlyAvailable,
-};
+  on,
+  removeListener,
+  isProviderAvailable,
+}
 
-export default adapter;
+export default adapter
