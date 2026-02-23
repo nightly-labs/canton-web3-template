@@ -6,13 +6,17 @@ import adapter, {
   CantonProviderListener,
   CantonStatusEvent,
   CantonTxChangedEvent,
-  CantonWalletAccount,
+  CantonWalletAccount
 } from '../misc/adapter'
 import ActionStarryButton from './ActionStarryButton'
 import StarryButton from './StarryButton'
+import {
+  DEFAULT_TRANSFER_AMOUNT,
+  DEFAULT_TRANSFER_RECEIVER_PARTY_ID,
+  buildPrepareTransferExecuteParams
+} from '../utils/prepareTransferCommand'
 
 const MESSAGE_TO_SIGN = 'SSBsb3ZlIE5pZ2h0bHk='
-
 const fromBase64 = (b64: string): Uint8Array => {
   const binary = window.atob(b64)
   const bytes = new Uint8Array(binary.length)
@@ -38,27 +42,6 @@ const verifySignature = (
   } catch (error) {
     console.error('Signature verification error:', error)
     return false
-  }
-}
-
-const buildPingCommand = (ledgerApiVersion: string | undefined, party: string) => {
-  const packageName = ledgerApiVersion?.startsWith('3.3.')
-    ? 'AdminWorkflows'
-    : 'canton-builtin-admin-workflow-ping'
-
-  return {
-    commands: [
-      {
-        CreateCommand: {
-          templateId: `#${packageName}:Canton.Internal.Ping:Ping`,
-          createArguments: {
-            id: `my-test-${Date.now()}`,
-            initiator: party,
-            responder: party,
-          },
-        },
-      },
-    ],
   }
 }
 
@@ -115,7 +98,7 @@ const StickyHeader: React.FC = () => {
     try {
       const result = await adapter.ledgerApi({
         requestMethod: 'GET',
-        resource: '/v2/version',
+        resource: '/v2/version'
       })
 
       const parsed = JSON.parse(result.response) as { version?: string }
@@ -222,7 +205,7 @@ const StickyHeader: React.FC = () => {
 
     if (!publicKey) {
       toast.success('Message signed', {
-        description: `Signature: ${signature.signature.substring(0, 20)}...`,
+        description: `Signature: ${signature.signature.substring(0, 20)}...`
       })
       return
     }
@@ -230,42 +213,37 @@ const StickyHeader: React.FC = () => {
     const isValid = verifySignature(MESSAGE_TO_SIGN, signature.signature, publicKey)
     if (isValid) {
       toast.success('Message signed & verified!', {
-        description: `Signature: ${signature.signature.substring(0, 20)}...`,
+        description: `Signature: ${signature.signature.substring(0, 20)}...`
       })
       return
     }
 
     toast.warning('Message signed but verification failed!', {
-      description: `Signature: ${signature.signature.substring(0, 20)}...`,
+      description: `Signature: ${signature.signature.substring(0, 20)}...`
     })
   }
 
-  const handlePreparePing = async (): Promise<void> => {
+  const handlePrepareTransfer = async (): Promise<void> => {
     const partyId = primaryAccount?.partyId
+
     if (!partyId) {
       throw new Error('No primary party selected')
     }
 
-    const result = await adapter.prepareExecute(buildPingCommand(ledgerApiVersion, partyId))
+    const params = await buildPrepareTransferExecuteParams({
+      ledgerApi: request => adapter.ledgerApi(request),
+      partyId,
+      amount: DEFAULT_TRANSFER_AMOUNT,
+      receiverPartyId: DEFAULT_TRANSFER_RECEIVER_PARTY_ID
+    })
 
-    if (result.tx && isExecutedEvent(result.tx)) {
-      toast.success('Ping executed!', {
-        description: `Update ID: ${result.tx.payload.updateId}`,
-      })
-      return
-    }
-
-    toast.success('Ping request submitted to wallet')
-  }
-
-  const handleOpenWalletGateway = async (): Promise<void> => {
-    await adapter.open()
+    await adapter.prepareExecute(params)
   }
 
   const handleQueryVersion = async (): Promise<void> => {
     const result = await adapter.ledgerApi({
       requestMethod: 'GET',
-      resource: '/v2/version',
+      resource: '/v2/version'
     })
 
     const parsed = JSON.parse(result.response) as Record<string, unknown>
@@ -314,7 +292,7 @@ const StickyHeader: React.FC = () => {
                   toast.promise(handleSignMessage(), {
                     loading: 'Signing message...',
                     success: 'Message signed!',
-                    error: 'Signing failed',
+                    error: 'Signing failed'
                   })
                 }}
                 name='Sign Message'
@@ -322,24 +300,13 @@ const StickyHeader: React.FC = () => {
 
               <ActionStarryButton
                 onClick={async () => {
-                  toast.promise(handlePreparePing(), {
-                    loading: 'Preparing ping...',
-                    success: 'Ping executed!',
-                    error: 'Failed to execute ping',
+                  toast.promise(handlePrepareTransfer(), {
+                    loading: 'Preparing transfer command...',
+                    success: 'Transfer command submitted',
+                    error: 'Failed to prepare transfer command'
                   })
                 }}
-                name='Prepare Ping'
-              />
-
-              <ActionStarryButton
-                onClick={async () => {
-                  toast.promise(handleOpenWalletGateway(), {
-                    loading: 'Opening wallet...',
-                    success: 'Wallet opened',
-                    error: 'Failed to open wallet',
-                  })
-                }}
-                name='Open Wallet'
+                name='Prepare Transfer (commands)'
               />
 
               <ActionStarryButton
@@ -355,7 +322,7 @@ const StickyHeader: React.FC = () => {
                   toast.promise(handleQueryVersion(), {
                     loading: 'Querying version...',
                     success: 'Version loaded',
-                    error: 'Failed to query version',
+                    error: 'Failed to query version'
                   })
                 }}
                 name='Query Version'
@@ -363,17 +330,20 @@ const StickyHeader: React.FC = () => {
 
               <div className='bg-black bg-opacity-80 rounded-lg p-3 max-w-[360px] text-xs text-white space-y-1'>
                 <div>
-                  <span className='font-semibold'>Gateway:</span> {getGatewayId(status) || 'unknown'}
+                  <span className='font-semibold'>Gateway:</span>{' '}
+                  {getGatewayId(status) || 'unknown'}
                 </div>
                 <div>
-                  <span className='font-semibold'>Connected:</span> {getConnected(status) ? 'Yes' : 'No'}
+                  <span className='font-semibold'>Connected:</span>{' '}
+                  {getConnected(status) ? 'Yes' : 'No'}
                 </div>
                 <div>
                   <span className='font-semibold'>Network connected:</span>{' '}
                   {getNetworkConnected(status) ? 'Yes' : 'No'}
                 </div>
                 <div>
-                  <span className='font-semibold'>Network:</span> {getNetworkId(status) || 'unknown'}
+                  <span className='font-semibold'>Network:</span>{' '}
+                  {getNetworkId(status) || 'unknown'}
                 </div>
                 <div>
                   <span className='font-semibold'>Primary party:</span>{' '}
@@ -383,7 +353,8 @@ const StickyHeader: React.FC = () => {
                   <span className='font-semibold'>Accounts:</span> {accounts.length}
                 </div>
                 <div>
-                  <span className='font-semibold'>Ledger API version:</span> {ledgerApiVersion || 'unknown'}
+                  <span className='font-semibold'>Ledger API version:</span>{' '}
+                  {ledgerApiVersion || 'unknown'}
                 </div>
               </div>
 
@@ -414,7 +385,8 @@ const StickyHeader: React.FC = () => {
                         </div>
                         {isExecutedEvent(event) && (
                           <div className='text-xs text-green-300'>
-                            <span className='font-semibold'>Update ID:</span> {event.payload.updateId}
+                            <span className='font-semibold'>Update ID:</span>{' '}
+                            {event.payload.updateId}
                           </div>
                         )}
                       </div>

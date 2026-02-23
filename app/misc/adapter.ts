@@ -1,4 +1,3 @@
-import * as sdk from '@canton-network/dapp-sdk'
 import type * as dappAPI from '@canton-network/core-wallet-dapp-rpc-client'
 
 export type CantonConnectResult = dappAPI.ConnectResult
@@ -74,34 +73,47 @@ export const isProviderAvailable = (): boolean => {
 }
 
 export const connect = async (): Promise<CantonConnectResult> => {
-  return sdk.connect()
+  return request<CantonConnectResult>({
+    method: 'connect',
+  })
 }
 
 export const disconnect = async (): Promise<null> => {
-  await sdk.disconnect()
-  return null
+  return request<null>({
+    method: 'disconnect',
+  })
 }
 
 export const status = async (): Promise<CantonStatusEvent> => {
-  return sdk.status()
+  return request<CantonStatusEvent>({
+    method: 'status',
+  })
 }
 
 export const requestAccounts = async (): Promise<CantonWalletAccount[]> => {
-  return sdk.requestAccounts()
+  return request<CantonWalletAccount[]>({
+    method: 'requestAccounts',
+  })
 }
 
 export const prepareExecute = async (
   params: CantonPrepareExecuteParams
 ): Promise<CantonPrepareExecuteResult> => {
-  return sdk.prepareExecute(params)
+  return request<CantonPrepareExecuteResult>({
+    method: 'prepareExecute',
+    params,
+  })
 }
 
 export const ledgerApi = async (params: CantonLedgerApiRequest): Promise<CantonLedgerApiResult> => {
-  return sdk.ledgerApi(params)
+  return request<CantonLedgerApiResult>({
+    method: 'ledgerApi',
+    params,
+  })
 }
 
 export const open = async (): Promise<void> => {
-  return sdk.open()
+  throw new Error('Not implemented')
 }
 
 export const signMessage = async (
