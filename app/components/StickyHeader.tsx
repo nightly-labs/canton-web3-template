@@ -1,446 +1,405 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import React, { useEffect, useMemo } from "react";
-import { toast } from "sonner";
-import nacl from "tweetnacl";
+import React, { useEffect } from 'react'
+import { toast } from 'sonner'
+import nacl from 'tweetnacl'
 import adapter, {
-  type CantonWallet,
-  SignRequestResponseType,
-  type SignRequestResponse,
-  Instrument,
-} from "../misc/adapter";
-import ActionStarryButton from "./ActionStarryButton";
-import StarryButton from "./StarryButton";
+  CantonProviderListener,
+  CantonStatusEvent,
+  CantonTxChangedEvent,
+  CantonWalletAccount
+} from '../misc/adapter'
+import ActionStarryButton from './ActionStarryButton'
+import StarryButton from './StarryButton'
+import {
+  DEFAULT_TRANSFER_AMOUNT,
+  DEFAULT_TRANSFER_RECEIVER_PARTY_ID,
+  buildPrepareTransferExecuteParams
+} from '../utils/prepareTransferCommand'
 
-const MESSAGE_TO_SIGN = Buffer.from("I love Nightly", "utf-8").toString(
-  "base64",
-);
-
-// Helper functions for base64 encoding/decoding
+const MESSAGE_TO_SIGN = 'SSBsb3ZlIE5pZ2h0bHk='
 const fromBase64 = (b64: string): Uint8Array => {
-  return Uint8Array.from(Buffer.from(b64, "base64"));
-};
+  const binary = window.atob(b64)
+  const bytes = new Uint8Array(binary.length)
+
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+
+  return bytes
+}
 
 const verifySignature = (
-  message: string,
+  messageBase64: string,
   signatureBase64: string,
-  publicKeyBase64: string,
+  publicKeyBase64: string
 ): boolean => {
   try {
-    const messageBytes = Uint8Array.from(Buffer.from(message, "base64"));
-    const signatureBytes = fromBase64(signatureBase64);
-    const publicKeyBytes = fromBase64(publicKeyBase64);
+    const messageBytes = fromBase64(messageBase64)
+    const signatureBytes = fromBase64(signatureBase64)
+    const publicKeyBytes = fromBase64(publicKeyBase64)
 
-    return nacl.sign.detached.verify(
-      messageBytes,
-      signatureBytes,
-      publicKeyBytes,
-    );
+    return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes)
   } catch (error) {
-    console.error("Signature verification error:", error);
-    return false;
+    console.error('Signature verification error:', error)
+    return false
   }
-};
+}
 
-// Default instrument for Canton
-const DEFAULT_INSTRUMENT = {
-  id: "Amulet",
-  admin:
-    "DSO::1220b1431ef217342db44d516bb9befde802be7d8899637d290895fa58880f19accc",
-};
+const getPrimaryAccount = (accounts: CantonWalletAccount[]): CantonWalletAccount | null => {
+  return accounts.find(account => account.primary) ?? accounts[0] ?? null
+}
+
+const isExecutedEvent = (
+  event: CantonTxChangedEvent
+): event is Extract<CantonTxChangedEvent, { status: 'executed' }> => {
+  return event.status === 'executed'
+}
+
+const getConnected = (status?: CantonStatusEvent | null): boolean => Boolean(status?.isConnected)
+
+const getNetworkConnected = (status?: CantonStatusEvent | null): boolean =>
+  Boolean(status?.isNetworkConnected)
+
+const getNetworkId = (status?: CantonStatusEvent | null): string | undefined => status?.networkId
+const getGatewayId = (status?: CantonStatusEvent | null): string | undefined => status?.kernel?.id
 
 const StickyHeader: React.FC = () => {
-  const [wallet, setWallet] = React.useState<CantonWallet | null>(null);
-  const [walletAddress, setWalletAddress] = React.useState<
-    string | undefined
-  >();
-  const [pendingTransactions, setPendingTransactions] = React.useState<
-    Array<{
-      contractId: string;
-      instrumentId: Instrument;
-      type: "sender" | "receiver";
-    }>
-  >([]);
-  const [transferAmount, setTransferAmount] = React.useState<string>("");
-  const [transferAddress, setTransferAddress] = React.useState<string>(
-    "nightly::12201bfaf9c92404ae0832a5f47f2d8bfae0b1da65184953b1633394a65cff48b5cd",
-  );
+  const [status, setStatus] = React.useState<CantonStatusEvent | null>(null)
+  const [accounts, setAccounts] = React.useState<CantonWalletAccount[]>([])
+  const [primaryAccount, setPrimaryAccount] = React.useState<CantonWalletAccount | null>(null)
+  const [ledgerApiVersion, setLedgerApiVersion] = React.useState<string | undefined>()
+  const [queryResponse, setQueryResponse] = React.useState<Record<string, unknown> | null>(null)
+  const [txEvents, setTxEvents] = React.useState<CantonTxChangedEvent[]>([])
 
-  const fetchPendingTransactions = async () => {
+  const connected = getConnected(status)
+
+  const refreshStatus = async (): Promise<CantonStatusEvent | null> => {
     try {
-      const result = await adapter.getPendingTransactions();
-      console.log(result);
-      if (result) {
-        setPendingTransactions(result);
-      }
+      const nextStatus = await adapter.status()
+      setStatus(nextStatus)
+      return nextStatus
     } catch (error) {
-      console.error("Failed to fetch pending transactions:", error);
+      console.warn('Could not load status:', error)
+      return null
     }
-  };
+  }
 
-  const filteredPendingTransactions = useMemo(() => {
-    return pendingTransactions.filter((tx) => tx.type === "receiver");
-  }, [pendingTransactions]);
+  const refreshAccounts = async (): Promise<CantonWalletAccount[]> => {
+    const nextAccounts = await adapter.requestAccounts()
+    setAccounts(nextAccounts)
+
+    const primary = getPrimaryAccount(nextAccounts)
+    setPrimaryAccount(primary)
+
+    return nextAccounts
+  }
+
+  const refreshLedgerApiVersion = async (): Promise<string | undefined> => {
+    try {
+      const result = await adapter.ledgerApi({
+        requestMethod: 'GET',
+        resource: '/v2/version'
+      })
+
+      const parsed = JSON.parse(result.response) as { version?: string }
+      const version = parsed.version
+      setLedgerApiVersion(version)
+      return version
+    } catch (error) {
+      console.warn('Could not fetch ledger API version:', error)
+      setLedgerApiVersion(undefined)
+      return undefined
+    }
+  }
+
+  const refreshSessionData = async (): Promise<void> => {
+    const nextStatus = await refreshStatus()
+
+    if (!getConnected(nextStatus)) {
+      setAccounts([])
+      setPrimaryAccount(null)
+      setLedgerApiVersion(undefined)
+      return
+    }
+
+    await refreshAccounts()
+
+    if (getNetworkConnected(nextStatus)) {
+      await refreshLedgerApiVersion()
+    } else {
+      setLedgerApiVersion(undefined)
+    }
+  }
 
   useEffect(() => {
-    // Initialize the adapter
-    adapter.init({
-      appName: "Canton Template",
-      iconUrl: "https://docs.nightly.app/img/logo.png",
-      network: "mainnet",
-      onAccept: (connectedWallet) => {
-        setWallet(connectedWallet);
-        const address =
-          connectedWallet.partyId || connectedWallet.publicKey || "Connected";
-        setWalletAddress(address);
-      },
-      onReject: () => {
-        console.log("Connection rejected");
-        toast.error("Connection rejected or Nightly wallet not available");
-      },
-      onDisconnect: () => {
-        setWallet(null);
-        setWalletAddress(undefined);
-        setPendingTransactions([]);
-      },
-    });
+    const initialize = async () => {
+      await refreshSessionData()
 
-    const init = async () => {
-      if (adapter.canEagerConnect()) {
-        try {
-          await adapter.eagerConnect();
-        } catch (error) {
-          console.log("Eager connect failed:", error);
-          await adapter.disconnect().catch(() => {});
+      if (!adapter.isProviderAvailable()) {
+        return
+      }
+
+      const onTxChanged: CantonProviderListener<'txChanged'> = event => {
+        setTxEvents(previous => [event, ...previous].slice(0, 8))
+      }
+
+      const onAccountsChanged: CantonProviderListener<'accountsChanged'> = nextAccounts => {
+        setAccounts(nextAccounts)
+        const nextPrimary = getPrimaryAccount(nextAccounts)
+        setPrimaryAccount(nextPrimary)
+      }
+
+      const onStatusChanged: CantonProviderListener<'statusChanged'> = nextStatus => {
+        setStatus(nextStatus)
+        if (!getConnected(nextStatus)) {
+          setLedgerApiVersion(undefined)
+          return
+        }
+
+        if (getNetworkConnected(nextStatus)) {
+          void refreshLedgerApiVersion()
         }
       }
-    };
-    init();
-  }, []);
 
-  // Fetch pending transactions when wallet connects
-  useEffect(() => {
-    if (wallet) {
-      fetchPendingTransactions();
-    }
-  }, [wallet]);
+      adapter.on('txChanged', onTxChanged)
+      adapter.on('accountsChanged', onAccountsChanged)
+      adapter.on('statusChanged', onStatusChanged)
 
-  const handleTransactionChoice = async (
-    contractId: string,
-    choice: "Accept" | "Reject",
-    instrumentId: Instrument = DEFAULT_INSTRUMENT,
-  ) => {
-    try {
-      const choiceCommand = await adapter.createTransactionChoiceCommand({
-        transferContractId: contractId,
-        choice,
-        instrument: instrumentId,
-      });
-
-      if (!choiceCommand) {
-        throw new Error("Failed to create choice command");
+      return () => {
+        adapter.removeListener('txChanged', onTxChanged)
+        adapter.removeListener('accountsChanged', onAccountsChanged)
+        adapter.removeListener('statusChanged', onStatusChanged)
       }
-
-      return new Promise<void>((resolve, reject) => {
-        adapter.submitTransactionCommand(
-          choiceCommand,
-          (response: SignRequestResponse) => {
-            if (
-              response.type === SignRequestResponseType.SIGN_REQUEST_APPROVED
-            ) {
-              const data = response.data as { updateId?: string };
-              toast.success(`Transaction ${choice.toLowerCase()}ed!`, {
-                description: `Update ID: ${data.updateId}`,
-              });
-              fetchPendingTransactions();
-              resolve();
-            } else if (
-              response.type === SignRequestResponseType.SIGN_REQUEST_REJECTED
-            ) {
-              const data = response.data as { reason: string };
-              reject(new Error(data.reason));
-            } else {
-              const data = response.data as { error: string };
-              reject(new Error(data.error));
-            }
-          },
-        );
-      });
-    } catch (error) {
-      console.error(`Failed to ${choice.toLowerCase()} transaction:`, error);
-      toast.error(`Failed to ${choice.toLowerCase()} transaction`);
-    }
-  };
-
-  const handleSendTransfer = async () => {
-    if (!transferAmount || !transferAddress) {
-      toast.error("Please enter amount and address");
-      return;
     }
 
-    try {
-      const transferCommand = await adapter.createTransferCommand({
-        receiverPartyId: transferAddress,
-        amount: transferAmount,
-        instrument: DEFAULT_INSTRUMENT,
-        memo: "Transfer from Canton Template",
-      });
-      console.log(transferCommand);
-      if (!transferCommand) {
-        throw new Error("Failed to create transfer command");
-      }
+    let cleanup: (() => void) | undefined
 
-      return new Promise<void>((resolve, reject) => {
-        adapter.submitTransactionCommand(
-          transferCommand,
-          (response: SignRequestResponse) => {
-            if (
-              response.type === SignRequestResponseType.SIGN_REQUEST_APPROVED
-            ) {
-              const data = response.data as { updateId?: string };
-              toast.success("Transfer sent!", {
-                description: `Update ID: ${data.updateId}`,
-              });
-              setTransferAmount("");
-              resolve();
-            } else if (
-              response.type === SignRequestResponseType.SIGN_REQUEST_REJECTED
-            ) {
-              const data = response.data as { reason: string };
-              reject(new Error(data.reason));
-            } else {
-              const data = response.data as { error: string };
-              reject(new Error(data.error));
-            }
-          },
-        );
-      });
-    } catch (error) {
-      console.error("Failed to send transfer:", error);
-      toast.error("Failed to send transfer");
+    void initialize().then(fn => {
+      cleanup = fn
+    })
+
+    return () => {
+      cleanup?.()
     }
-  };
+  }, [])
+
+  const handleConnect = async (): Promise<void> => {
+    const connectedResult = await adapter.connect()
+    setStatus(connectedResult.status)
+    await refreshSessionData()
+  }
+
+  const handleDisconnect = async (): Promise<void> => {
+    await adapter.disconnect()
+    setStatus(null)
+    setAccounts([])
+    setPrimaryAccount(null)
+    setLedgerApiVersion(undefined)
+    setQueryResponse(null)
+    setTxEvents([])
+  }
+
+  const handleSignMessage = async (): Promise<void> => {
+    const signature = await adapter.signMessage({ message: MESSAGE_TO_SIGN })
+    const publicKey = primaryAccount?.publicKey
+
+    if (!publicKey) {
+      toast.success('Message signed', {
+        description: `Signature: ${signature.signature.substring(0, 20)}...`
+      })
+      return
+    }
+
+    const isValid = verifySignature(MESSAGE_TO_SIGN, signature.signature, publicKey)
+    if (isValid) {
+      toast.success('Message signed & verified!', {
+        description: `Signature: ${signature.signature.substring(0, 20)}...`
+      })
+      return
+    }
+
+    toast.warning('Message signed but verification failed!', {
+      description: `Signature: ${signature.signature.substring(0, 20)}...`
+    })
+  }
+
+  const handlePrepareTransfer = async (): Promise<void> => {
+    const partyId = primaryAccount?.partyId
+
+    if (!partyId) {
+      throw new Error('No primary party selected')
+    }
+
+    const params = await buildPrepareTransferExecuteParams({
+      ledgerApi: request => adapter.ledgerApi(request),
+      partyId,
+      amount: DEFAULT_TRANSFER_AMOUNT,
+      receiverPartyId: DEFAULT_TRANSFER_RECEIVER_PARTY_ID
+    })
+
+    await adapter.prepareExecute(params)
+  }
+
+  const handleQueryVersion = async (): Promise<void> => {
+    const result = await adapter.ledgerApi({
+      requestMethod: 'GET',
+      resource: '/v2/version'
+    })
+
+    const parsed = JSON.parse(result.response) as Record<string, unknown>
+    setQueryResponse(parsed)
+  }
 
   return (
-    <header className="fixed top-0 left-0 w-full bg-opacity-50 p-6 z-50">
-      <div className="flex items-center justify-between">
+    <header className='fixed top-0 left-0 w-full bg-opacity-50 p-6 z-50'>
+      <div className='flex items-start justify-between'>
         <div>{/* Logo placeholder */}</div>
-        <div className="flex flex-col space-y-4">
+
+        <div className='flex flex-col space-y-4'>
           <StarryButton
-            connected={wallet !== null}
+            connected={connected}
             onConnect={async () => {
               try {
-                await adapter.connect();
+                await handleConnect()
               } catch (error) {
-                console.error("Connection error:", error);
-                await adapter.disconnect().catch(() => {});
+                console.error('Connection error:', error)
+                const details =
+                  typeof error === 'object' &&
+                  error !== null &&
+                  'details' in error &&
+                  typeof error.details === 'string'
+                    ? error.details
+                    : error instanceof Error
+                      ? error.message
+                      : String(error)
+                toast.error(details)
               }
             }}
             onDisconnect={async () => {
               try {
-                await adapter.disconnect();
+                await handleDisconnect()
               } catch (error) {
-                console.log(error);
+                console.error('Disconnect error:', error)
               }
             }}
-            publicKey={walletAddress}
+            publicKey={primaryAccount?.partyId}
           />
-          {wallet && (
+
+          {connected && (
             <>
               <ActionStarryButton
                 onClick={async () => {
-                  const signMessage = () => {
-                    return new Promise<void>((resolve, reject) => {
-                      adapter.signMessage(
-                        MESSAGE_TO_SIGN,
-                        (response: SignRequestResponse) => {
-                          if (
-                            response.type ===
-                            SignRequestResponseType.SIGN_REQUEST_APPROVED
-                          ) {
-                            const data = response.data as {
-                              signature?: string;
-                            };
-                            console.log("Signature:", data.signature);
-
-                            const publicKey = wallet?.publicKey;
-
-                            if (data.signature && publicKey) {
-                              const isValid = verifySignature(
-                                MESSAGE_TO_SIGN,
-                                data.signature,
-                                publicKey,
-                              );
-
-                              console.log("Signature valid:", isValid);
-
-                              if (isValid) {
-                                toast.success("Message signed & verified!", {
-                                  description: `Signature: ${data.signature.substring(
-                                    0,
-                                    20,
-                                  )}...`,
-                                });
-                              } else {
-                                toast.warning(
-                                  "Message signed but verification failed!",
-                                  {
-                                    description: `Signature: ${data.signature.substring(
-                                      0,
-                                      20,
-                                    )}...`,
-                                  },
-                                );
-                              }
-                            } else {
-                              toast.success("Message signed!", {
-                                description: `Signature: ${data.signature?.substring(
-                                  0,
-                                  20,
-                                )}...`,
-                              });
-                            }
-                            resolve();
-                          } else if (
-                            response.type ===
-                            SignRequestResponseType.SIGN_REQUEST_REJECTED
-                          ) {
-                            const data = response.data as { reason: string };
-                            console.log("Rejected:", data.reason);
-                            reject(new Error(data.reason));
-                          } else {
-                            const data = response.data as { error: string };
-                            console.log("Error:", data.error);
-                            reject(new Error(data.error));
-                          }
-                        },
-                      );
-                    });
-                  };
-                  toast.promise(signMessage, {
-                    loading: "Signing message...",
-                    success: (_) => {
-                      return `Message signed!`;
-                    },
-                    error: "Operation has been rejected!",
-                  });
+                  toast.promise(handleSignMessage(), {
+                    loading: 'Signing message...',
+                    success: 'Message signed!',
+                    error: 'Signing failed'
+                  })
                 }}
-                name="Sign Message"
+                name='Sign Message'
               />
 
               <ActionStarryButton
-                onClick={fetchPendingTransactions}
-                name="Refresh Pending"
+                onClick={async () => {
+                  toast.promise(handlePrepareTransfer(), {
+                    loading: 'Preparing transfer command...',
+                    success: 'Transfer command submitted',
+                    error: 'Failed to prepare transfer command'
+                  })
+                }}
+                name='Prepare Transfer (commands)'
               />
 
-              {/* Pending Transactions List */}
-              {filteredPendingTransactions.length > 0 && (
-                <div className="bg-black bg-opacity-80 rounded-lg p-3 max-w-[320px]">
-                  <div className="text-white text-sm font-semibold mb-2">
-                    Pending Transactions ({filteredPendingTransactions.length})
-                  </div>
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                    {filteredPendingTransactions.map((contractId, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between bg-gray-800 rounded p-2"
-                      >
-                        <span
-                          className="text-white text-xs truncate max-w-[120px]"
-                          title={contractId.contractId}
-                        >
-                          {contractId.contractId?.substring(0, 8)}...
-                          {contractId.contractId?.substring(
-                            contractId.contractId?.length - 6,
-                          )}
-                        </span>
-                        <div className="flex space-x-1">
-                          <button
-                            onClick={() =>
-                              toast.promise(
-                                handleTransactionChoice(
-                                  contractId.contractId,
-                                  "Accept",
-                                  contractId.instrumentId,
-                                ),
-                                {
-                                  loading: "Accepting...",
-                                  success: "Accepted!",
-                                  error: "Failed to accept",
-                                },
-                              )
-                            }
-                            className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 rounded transition-colors"
-                          >
-                            Accept
-                          </button>
-                          <button
-                            onClick={() =>
-                              toast.promise(
-                                handleTransactionChoice(
-                                  contractId.contractId,
-                                  "Reject",
-                                  contractId.instrumentId,
-                                ),
-                                {
-                                  loading: "Rejecting...",
-                                  success: "Rejected!",
-                                  error: "Failed to reject",
-                                },
-                              )
-                            }
-                            className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded transition-colors"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              <ActionStarryButton
+                onClick={async () => {
+                  await refreshSessionData()
+                  toast.success('Status refreshed')
+                }}
+                name='Refresh Status'
+              />
+
+              <ActionStarryButton
+                onClick={async () => {
+                  toast.promise(handleQueryVersion(), {
+                    loading: 'Querying version...',
+                    success: 'Version loaded',
+                    error: 'Failed to query version'
+                  })
+                }}
+                name='Query Version'
+              />
+
+              <div className='bg-black bg-opacity-80 rounded-lg p-3 max-w-[360px] text-xs text-white space-y-1'>
+                <div>
+                  <span className='font-semibold'>Gateway:</span>{' '}
+                  {getGatewayId(status) || 'unknown'}
+                </div>
+                <div>
+                  <span className='font-semibold'>Connected:</span>{' '}
+                  {getConnected(status) ? 'Yes' : 'No'}
+                </div>
+                <div>
+                  <span className='font-semibold'>Network connected:</span>{' '}
+                  {getNetworkConnected(status) ? 'Yes' : 'No'}
+                </div>
+                <div>
+                  <span className='font-semibold'>Network:</span>{' '}
+                  {getNetworkId(status) || 'unknown'}
+                </div>
+                <div>
+                  <span className='font-semibold'>Primary party:</span>{' '}
+                  {primaryAccount?.partyId || 'not selected'}
+                </div>
+                <div>
+                  <span className='font-semibold'>Accounts:</span> {accounts.length}
+                </div>
+                <div>
+                  <span className='font-semibold'>Ledger API version:</span>{' '}
+                  {ledgerApiVersion || 'unknown'}
+                </div>
+              </div>
+
+              {queryResponse && (
+                <div className='bg-black bg-opacity-80 rounded-lg p-3 max-w-[360px]'>
+                  <div className='text-white text-sm font-semibold mb-2'>Ledger API Response</div>
+                  <pre className='text-xs text-green-300 overflow-x-auto whitespace-pre-wrap'>
+                    {JSON.stringify(queryResponse, null, 2)}
+                  </pre>
                 </div>
               )}
 
-              {/* Transfer Form */}
-              <div className="bg-black bg-opacity-80 rounded-lg p-3 max-w-[320px]">
-                <div className="text-white text-sm font-semibold mb-2">
-                  Send CC
+              <div className='bg-black bg-opacity-80 rounded-lg p-3 max-w-[360px]'>
+                <div className='text-white text-sm font-semibold mb-2'>
+                  Recent txChanged events ({txEvents.length})
                 </div>
-                <div className="space-y-2">
-                  <input
-                    type="number"
-                    placeholder="Amount"
-                    value={transferAmount}
-                    onChange={(e) => setTransferAmount(e.target.value)}
-                    className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
-                    min="0"
-                    step="0.01"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Receiver Party ID"
-                    value={transferAddress}
-                    onChange={(e) => setTransferAddress(e.target.value)}
-                    className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    onClick={() =>
-                      toast.promise(handleSendTransfer, {
-                        loading: "Sending transfer...",
-                        success: "Transfer sent!",
-                        error: "Failed to send transfer",
-                      })
-                    }
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded transition-colors"
-                  >
-                    Send CC
-                  </button>
-                </div>
+                {txEvents.length === 0 ? (
+                  <div className='text-xs text-gray-300'>No events yet</div>
+                ) : (
+                  <div className='space-y-2 max-h-[220px] overflow-y-auto'>
+                    {txEvents.map((event, index) => (
+                      <div key={index} className='bg-gray-800 rounded p-2'>
+                        <div className='text-xs text-white'>
+                          <span className='font-semibold'>Status:</span> {event.status}
+                        </div>
+                        <div className='text-xs text-gray-300'>
+                          <span className='font-semibold'>Command:</span> {event.commandId}
+                        </div>
+                        {isExecutedEvent(event) && (
+                          <div className='text-xs text-green-300'>
+                            <span className='font-semibold'>Update ID:</span>{' '}
+                            {event.payload.updateId}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}
         </div>
       </div>
     </header>
-  );
-};
+  )
+}
 
-export default StickyHeader;
+export default StickyHeader
