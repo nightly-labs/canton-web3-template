@@ -1,13 +1,18 @@
 import './globals.css'
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
-import Head from 'next/head'
+
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Canton Template App',
   description:
     'Start your Canton journey here, without unnecessary configuration and setup. Just clone it and code on top of it. Powered by Nightly Wallet.',
+  icons: {
+    icon: '/cantonSquare.svg',
+    shortcut: '/cantonSquare.svg',
+    apple: '/cantonSquare.svg',
+  },
   twitter: {
     title: 'Canton Template App',
     description:

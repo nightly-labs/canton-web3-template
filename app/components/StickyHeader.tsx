@@ -251,7 +251,7 @@ const StickyHeader: React.FC = () => {
   }
 
   return (
-    <header className='fixed top-0 left-0 w-full bg-opacity-50 p-6 z-50'>
+    <header className='relative md:fixed top-0 left-0 w-full bg-opacity-50 p-6 z-50 pb-28 md:pb-6'>
       <div className='flex items-start justify-between'>
         <div>{/* Logo placeholder */}</div>
 
