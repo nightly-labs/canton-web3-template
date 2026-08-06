@@ -23,24 +23,13 @@ body,
   user-select: none;
   overflow-x: hidden;
   overflow-y: auto;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
 }
 
 body {
   font-family: 'Inter', sans-serif;
 }
 
-#root {
-  background: white;
-  background: radial-gradient(
-      ellipse at -200% 60%,
-      rgba(209, 209, 209, 0.48) 22%,
-      rgba(182, 182, 182, 0) 71%
-    ),
-    linear-gradient(160deg, rgb(233, 233, 233), hsl(0, 0%, 100%) 100%);
-  overflow: auto;
-}
+#root { min-height: 100dvh; }
 
 body {
   overscroll-behavior-y: auto;
@@ -50,7 +39,19 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-html::-webkit-scrollbar,
-body::-webkit-scrollbar {
-  display: none;
+html { scrollbar-color: rgba(255, 255, 255, 0.3) transparent; }
+
+.ui-panel {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+  background: rgba(17, 17, 24, 0.68);
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(18px);
+}
+
+.ui-card {
+  min-width: 0;
+  border-radius: 0.75rem;
+  background: rgba(0, 0, 0, 0.62);
+  padding: 0.85rem;
 }

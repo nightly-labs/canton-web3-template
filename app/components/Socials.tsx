@@ -5,7 +5,7 @@ import GithubIcon from '../svg/github.svg'
 
 const Socials: React.FC = () => {
   return (
-    <div className='fixed right-4 bottom-4 p-2 rounded-xl bg-white bg-opacity-40 backdrop-blur-md w-[170px]'>
+    <div className='fixed bottom-4 left-1/2 z-20 w-max -translate-x-1/2 rounded-xl bg-white/10 p-2 backdrop-blur-md sm:left-auto sm:right-4 sm:translate-x-0'>
       <div className='flex justify-center space-x-2'>
         <a
           href='https://twitter.com/Nightly_app'

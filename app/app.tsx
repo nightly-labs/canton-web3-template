@@ -9,8 +9,8 @@ export default function Home() {
   return (
     <>
       <Background />
-      <StickyHeader />
       <Torus />
+      <StickyHeader />
       <Toaster position='bottom-left' richColors />
       <Socials />
     </>

@@ -259,11 +259,9 @@ const StickyHeader: React.FC = () => {
   }
 
   return (
-    <header className='relative md:fixed top-0 left-0 w-full bg-opacity-50 p-6 z-50 pb-28 md:pb-6'>
-      <div className='flex items-start justify-between'>
-        <div>{/* Logo placeholder */}</div>
-
-        <div className='flex flex-col space-y-4'>
+    <header className='absolute top-28 xl:top-0 z-10 flex min-h-[40dvh] xl:min-h-[100dvh] w-full justify-center xl:justify-end p-4 pb-24 sm:p-6 sm:pb-24 lg:p-10'>
+      <div className='flex w-full max-w-md flex-col'>
+        <div className='ui-panel flex max-h-[calc(100dvh-7rem)] flex-col gap-4 overflow-y-auto p-4 sm:p-5'>
           <StarryButton
             connected={connected}
             onConnect={async () => {
@@ -341,7 +339,7 @@ const StickyHeader: React.FC = () => {
                 name='Query Version'
               />
 
-              <div className='bg-black bg-opacity-80 rounded-lg p-3 max-w-[360px] text-xs text-white space-y-1'>
+              <div className='ui-card space-y-1 text-xs text-white'>
                 <div>
                   <span className='font-semibold'>Gateway:</span>{' '}
                   {getGatewayId(status) || 'unknown'}
@@ -360,7 +358,7 @@ const StickyHeader: React.FC = () => {
                 </div>
                 <div>
                   <span className='font-semibold'>Primary party:</span>{' '}
-                  {primaryAccount?.partyId || 'not selected'}
+                  <span className='break-all'>{primaryAccount?.partyId || 'not selected'}</span>
                 </div>
                 <div>
                   <span className='font-semibold'>Accounts:</span> {accounts.length}
@@ -372,15 +370,15 @@ const StickyHeader: React.FC = () => {
               </div>
 
               {queryResponse && (
-                <div className='bg-black bg-opacity-80 rounded-lg p-3 max-w-[360px]'>
+                <div className='ui-card'>
                   <div className='text-white text-sm font-semibold mb-2'>Ledger API Response</div>
-                  <pre className='text-xs text-green-300 overflow-x-auto whitespace-pre-wrap'>
+                  <pre className='max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs text-green-300'>
                     {JSON.stringify(queryResponse, null, 2)}
                   </pre>
                 </div>
               )}
 
-              <div className='bg-black bg-opacity-80 rounded-lg p-3 max-w-[360px]'>
+              <div className='ui-card'>
                 <div className='text-white text-sm font-semibold mb-2'>
                   Recent txChanged events ({txEvents.length})
                 </div>
@@ -394,12 +392,13 @@ const StickyHeader: React.FC = () => {
                           <span className='font-semibold'>Status:</span> {event.status}
                         </div>
                         <div className='text-xs text-gray-300'>
-                          <span className='font-semibold'>Command:</span> {event.commandId}
+                          <span className='font-semibold'>Command:</span>{' '}
+                          <span className='break-all'>{event.commandId}</span>
                         </div>
                         {isExecutedEvent(event) && (
                           <div className='text-xs text-green-300'>
                             <span className='font-semibold'>Update ID:</span>{' '}
-                            {event.payload.updateId}
+                            <span className='break-all'>{event.payload.updateId}</span>
                           </div>
                         )}
                       </div>
