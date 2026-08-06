@@ -82,12 +82,28 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-const parseLedgerApiResponse = <T,>(response: string, errorMessage: string): T => {
+const parseLedgerApiResponse = <T,>(response: unknown, errorMessage: string): T => {
+  if (typeof response !== 'string') {
+    if (Array.isArray(response) || isRecord(response)) {
+      return response as T
+    }
+
+    throw new Error(errorMessage)
+  }
+
   try {
     return JSON.parse(response) as T
   } catch {
     throw new Error(errorMessage)
   }
+}
+
+const getLedgerApiResponse = (result: CantonLedgerApiResult): unknown => {
+  if (isRecord(result) && 'response' in result) {
+    return result.response
+  }
+
+  return result
 }
 
 const normalizeDisclosedContracts = (value: unknown[] | undefined): IDisclosedContract[] => {
@@ -309,12 +325,12 @@ export const buildPrepareTransferExecuteParams = async ({
   instrumentId = DEFAULT_TRANSFER_INSTRUMENT_ID
 }: IPrepareTransferCommandParams): Promise<CantonPrepareExecuteParams> => {
   const listUtxosResult = await ledgerApi({
-    requestMethod: 'POST',
+    requestMethod: 'post',
     resource: '/listUtxos',
-    body: JSON.stringify({ includeLocked: false })
+    body: { includeLocked: false }
   })
   const utxos = parseLedgerApiResponse<IUtxoResponseEntry[]>(
-    listUtxosResult.response,
+    getLedgerApiResponse(listUtxosResult),
     'Invalid /listUtxos response payload'
   )
 
@@ -334,15 +350,15 @@ export const buildPrepareTransferExecuteParams = async ({
   })
 
   const tokenFactoryResult = await ledgerApi({
-    requestMethod: 'POST',
+    requestMethod: 'post',
     resource: '/tokenFactory',
-    body: JSON.stringify({
+    body: {
       choiceArguments: fallbackChoiceArguments
-    })
+    }
   })
 
   const tokenFactory = parseLedgerApiResponse<ITokenFactoryResponse>(
-    tokenFactoryResult.response,
+    getLedgerApiResponse(tokenFactoryResult),
     'Invalid /tokenFactory response payload'
   )
 
@@ -363,7 +379,7 @@ export const buildPrepareTransferExecuteParams = async ({
   }
 
   return {
-    commands: command,
+    commands: [command],
     disclosedContracts
   }
 }
