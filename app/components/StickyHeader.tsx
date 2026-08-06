@@ -97,11 +97,15 @@ const StickyHeader: React.FC = () => {
   const refreshLedgerApiVersion = async (): Promise<string | undefined> => {
     try {
       const result = await adapter.ledgerApi({
-        requestMethod: 'GET',
+        requestMethod: 'get',
         resource: '/v2/version'
       })
 
-      const parsed = JSON.parse(result.response) as { version?: string }
+      const response = 'response' in result ? result.response : result
+      const parsed =
+        typeof response === 'string'
+          ? (JSON.parse(response) as { version?: string })
+          : (response as { version?: string })
       const version = parsed.version
       setLedgerApiVersion(version)
       return version
@@ -185,7 +189,7 @@ const StickyHeader: React.FC = () => {
 
   const handleConnect = async (): Promise<void> => {
     const connectedResult = await adapter.connect()
-    setStatus(connectedResult.status)
+    setStatus(connectedResult.status ?? null)
     await refreshSessionData()
   }
 
@@ -242,11 +246,15 @@ const StickyHeader: React.FC = () => {
 
   const handleQueryVersion = async (): Promise<void> => {
     const result = await adapter.ledgerApi({
-      requestMethod: 'GET',
+      requestMethod: 'get',
       resource: '/v2/version'
     })
 
-    const parsed = JSON.parse(result.response) as Record<string, unknown>
+    const response = 'response' in result ? result.response : result
+    const parsed =
+      typeof response === 'string'
+        ? (JSON.parse(response) as Record<string, unknown>)
+        : (response as Record<string, unknown>)
     setQueryResponse(parsed)
   }
 
@@ -300,11 +308,16 @@ const StickyHeader: React.FC = () => {
 
               <ActionStarryButton
                 onClick={async () => {
-                  toast.promise(handlePrepareTransfer(), {
-                    loading: 'Preparing transfer command...',
-                    success: 'Transfer command submitted',
-                    error: 'Failed to prepare transfer command'
-                  })
+    toast.promise(handlePrepareTransfer(), {
+      loading: 'Preparing transfer command...',
+      success: 'Transfer command submitted',
+      error: error => {
+        console.error('Prepare transfer command failed:', error)
+        return `Failed to prepare transfer command: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      }
+    })
                 }}
                 name='Prepare Transfer (commands)'
               />

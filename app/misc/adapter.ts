@@ -1,11 +1,18 @@
 import type * as dappAPI from '@canton-network/core-wallet-dapp-rpc-client'
 
-export type CantonConnectResult = dappAPI.ConnectResult
-export type CantonStatusEvent = dappAPI.StatusEvent
+export type CantonStatusEvent = Partial<dappAPI.StatusEvent> & {
+  isConnected?: boolean
+  isNetworkConnected?: boolean
+  networkId?: string
+  kernel?: { id?: string }
+}
+export type CantonConnectResult = dappAPI.ConnectResult & {
+  status?: CantonStatusEvent
+}
 export type CantonWalletAccount = dappAPI.Wallet
 export type CantonTxChangedEvent = dappAPI.TxChangedEvent
 export type CantonPrepareExecuteParams = dappAPI.PrepareExecuteParams
-export type CantonPrepareExecuteResult = dappAPI.PrepareExecuteResult
+export type CantonPrepareExecuteResult = null
 export type CantonLedgerApiRequest = dappAPI.LedgerApiParams
 export type CantonLedgerApiResult = dappAPI.LedgerApiResult
 
@@ -20,7 +27,7 @@ export interface CantonSignMessageResult {
 export type CantonProviderEventName = 'statusChanged' | 'accountsChanged' | 'txChanged'
 
 export interface CantonProviderEventMap {
-  statusChanged: dappAPI.StatusEvent
+  statusChanged: CantonStatusEvent
   accountsChanged: dappAPI.AccountsChangedEvent
   txChanged: dappAPI.TxChangedEvent
 }
